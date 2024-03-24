@@ -1,0 +1,563 @@
+---
+title: "DCM final: effect of political ideology on voting behavior"
+author: "Yiqiu Wang"
+date: "2023-03-21"
+header-includes:
+    - \usepackage{float}
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE,message = FALSE,fig.align = "center", fig.pos = "H", dev = "cairo_pdf")
+ess <- read.csv(file = "C:/Users/wangy/Documents/DchoiceFinal/ESS9e03_1.csv/ESS9e03_1.csv")
+```
+
+```{r,include=FALSE}
+library(tidyverse)
+library(sjlabelled)
+library(data.table)
+library(haven)
+library(modelsummary)
+library(kableExtra)
+library(knitr)
+library(nnet)
+# function to show a table of values in a variable
+tabl <- function(...) table(..., useNA='ifany')
+```
+
+#  Abstract
+
+|     What could affect individual’s voting choice? Many have studied the effect of age, gender and education level, but we argued that voting choice should very much result from political ideology. Views on immigrants and religiosity should also paly a role in voting. Using data from the European Social Survey (ESS) and the Manifesto Project Dataset, we applied a binary logistic regression model, a multinomial logistic regression, and a conditional logistic regression model to investigate the effect of these variables on voting outcomes. The results suggest that political ideology is a significant factor in party choice. Left leaning parties are more likely to be favored by older voters, female voters, highly educated voters and voters who think positively of immigrants while high level of religiosity makes a voter prefer right leaning parties.
+
+# Introduction
+
+|     Voting behavior has long been a topic which many researchers have conducted their study on. While it could be rational to regard political ideology as a predictor, few have studied how strong the effect of political ideology is and if such effect remains strong when more factors are controlled. In this study, we used a binary logistic regression model, a multinomial logistic regression model and a conditional logistic regression model to test the effect of political ideology on a voter’s party choice controlling for gender, age, education level, views on immigrants and religiosity. 
+
+# Theoretical background and hypotheses
+
+## Gender
+
+|     Different party features could attract voters of different genders. Inglehart and Norris (2000) has found that women are more often left leaning than men and Harteveld and colleagues (2019) argued that women favor parties which share the concern of social harmony with them. In this study, we expect women to be more likely to vote for left parties but we also expect gender to be only one of the reasons for such preference. 
+
+## Age
+
+|     Studies have been carried out to see if the increase in age would make a voter more authoritarian (Tilley 2005) and more likely to vote for right parties. However, the results of these studies are diverse as some have shown aging does make people favor conservative parties (Tilley and Evans, 2014) while others found no significant effect of aging on the likelihood to vote for right parties (Goerres  2008). It could be the inclusion of other variables which might moderate the effect of aging or the assumed effect of aging in fact comes from other variables. In this study, we expect the often-observed tendency of elders voting for right parties is in fact caused by something more implicit (possibly associated with age) about the voters instead of merely increased age.  
+
+## Education
+
+|     It is found that individuals with high level of education are more likely to vote for liberal parties and less likely to vote for radical right parties (Attewell 2022). We expect voters who received high level of education to be more left leaning.
+Political ideology
+Individuals’ placement on the left or right of the political spectrum has been proved to be relatively stable (Prior 2010). We expect political ideology being a major factor when deciding which party to vote for and its effect should enjoy a high degree of robustness.
+
+## View on immigrants
+
+|     The general feature of left parties is that they recognize the value immigrants could bring in term of economy and culture. This feature makes voters who view immigrants positively favor them (Malloy et al. 2022).
+
+## Religiosity
+
+|     The relationship between religiosity and party vote choice is proved to be different in different parts of European as more religious voters in western European countries are less willing to vote for right wing parties but some countries in east-central European countries witness the increase in likelihood of voting for right wing parties of highly religious voters (Marcinkiewicz and Dassonneville 2022). We expect religious voters to be in general left leaning.
+
+# Method and Data
+
+## Method(models)
+
+|     A binary logistic regression model, a multinomial logistic regression and a conditional logistic regression model are used in this study. For the first model, the outcome is binary based on whether left parties are voted. As one expansion of the former model, the multinomial model could present the effect of variables on voting for another party type compared to that of voting for left parties (Long 1997). In the last model, both the traits of voters and parties are taken into consideration. 
+
+## Data source
+
+|     We used data from the ninth round of European Social Survey (ESS, 2018) which covered covers 30 countries and the latest version of Manifesto Project Dataset (2022). The gender, age, education, political ideology, view on immigrants, religiosity and voting outcome of participants are drawn from ESS. Gender and education are set as binary variables which female voters and voters with a degree no lower than bachelor are coded 1 and 0 otherwise. Political ideology, immigration view and religiosity are self-reported and recorded based on a 10-point scale with higher values indicating more right leaning, more positive on immigrants and more religious. We used “parfam” which set the standard for the grouping of political parties (12 types) in the Manifesto Project Dataset to categorize all voted parties. Based on “parfam”, we further set parties belong to “Ecological parties”, “Socialist or other left parties” and “Social democratic parties” as left parties. “Liberal parties” are set as a unique party type. Parties belong to “Christian democratic parties” and “Conservative parties” are set as right parties. “Nationalist and radical right parties” are set as radical right parties. “Electoral alliances of diverse origin without dominant party” and missing information are kept missing. For simplicity, other parties are kept as “others”. 
+
+## Number of participants
+
+|     All voters who had at least one missing value in the variables above are excluded from this study. Voters under 18 who we consider was not eligible of voting are also excluded which reduced the number of participants from 50845 to 14145 in 16 countries.
+
+```{r,include=FALSE}
+# Create a funtion to select the variables we need from ess
+es.df.clean <- function(x){
+  esx <- x |> 
+  select(essround,
+         idno, # Respondent's identification number
+         cntry,# Country
+         starts_with("inw"), # REQUIRED: interview date (to match vote recall to specific election)
+         anweight, # Analysis weight
+         vote,# did you vote in the last election
+         starts_with("prtv"), # Party choice
+         lrscale, # Placement on left right scale
+         gndr, # Gender 
+         agea, # Age
+         edulvlb, # Highest level of education
+         -ends_with("de1"),# drop 1st German vote intention var
+         imwbcnt,#Immigrants make country worse or better place to live
+         rlgdgr # How religious are you
+  ) |> 
+    as.data.frame()
+   # find FIRST country-specific vote variable
+  start <- head(grep("prtv", colnames(esx)), n=1)
+  # find LAST country-specific vote variable
+  end <- tail(grep("prtv", colnames(esx)), n=1)
+  # mini dataset of party choice vars
+  es.vote <- esx |>  select(all_of(start):all_of(end))
+  # create dataset-wide vote variable by merging the country-specific vars
+  esx$party.vote.num <- as.vector(do.call(coalesce, es.vote))
+  # convert numeric values into party names
+  es.vote.named <- as_label(es.vote)
+  # convert factors into characters to make sure they're stored properly
+  es.vote.named[] <- lapply(es.vote.named, as.character)
+  # create another dataset-wide vote variable, this time for the character variable
+  esx$party.vote.name <- as.vector(do.call(coalesce, es.vote.named))
+  # convert to UTF encoding to deal with special characters
+  # delete unnecessary variables
+  start <- head(grep("prtvt", colnames(esx)), n=1)
+  end <- tail(grep("prtvt", colnames(esx)), n=1)
+  esx <- esx |>  select(-(all_of(start):all_of(end)))
+  esx
+}
+
+ess <- es.df.clean(ess)
+
+##### Look at the variables and make adjustments
+
+# lrscale
+# a check
+tabl(ess$lrscale)
+# 77,88,99 stands for missing values. code them as NA
+ess$lrscale[ess$lrscale >= 77] <- NA
+# the higher the value, the more "right" the participant is
+ess <- ess |> 
+  mutate(right_polview = lrscale) |> # create a new variable called "right_polview" based on lrscale
+  select(-lrscale) # we don't need the lrscale now
+
+# gender
+# Create a new variable called "female" based on gndr and drop gndr
+# in gndr, 1 stands for male and 2 female
+ess <- ess |> 
+  mutate(female = ifelse(gndr == 2,1,ifelse(gndr ==1,0,NA))) |> 
+  select(-gndr)
+
+# age
+table(ess$agea) # check
+ess$age <- ess$agea
+ess$age[ess$agea==999] <- NA # 999 stands for missing values
+table(ess$age)
+ess$age.group <- cut(ess$age, breaks=c(18,30,40,50,65,75,120))# divide different age groups 
+table(ess$age.group)
+# drop agea
+ess <- ess |> 
+  select(-agea)
+
+# education(>=bachelor)
+# 7777,8888,9999 are missing values according to the code book(view as Nas), but for 5555 which stands for "Other" , we don't know if that is a degree lower or higher than bachelor so we change it into Na as well
+ess$edulvlb[ess$edulvlb >= 5555] <- NA
+tabl(ess$edulvlb) # a check
+# We know from the codebook that edulvlb values from 610 to 800 means a participant has a degree no lower than bachelor
+# So we can create a dummy variable in which if edulvlb is higher than 600, code it 1 and 0 otherwise
+ess$bachelor <- ifelse(ess$edulvlb>600, 1, 0)
+tabl(ess$bachelor) # a check
+# drop edulvlb
+ess <- ess |> 
+  select(-edulvlb) 
+
+table(ess$cntry)
+ess$party.vote.ess <- paste0(ess$cntry, "-", ess$essround, "-", ess$party.vote.num)
+tabl(ess$party.vote.ess)
+
+#imwbcnt  Immigrants make country worse or better place to live
+# 77,88,99 stands for missing values
+# higher value more positive view on immigrants' effect on culture
+tabl(ess$imwbcnt)
+ess$imwbcnt [ess$imwbcnt >11] <- NA
+tabl(ess$imwbcnt)
+# Change the name of this variable to "immi view"
+ess <- ess |> 
+  mutate(immi_view = imwbcnt) |> 
+  select(-imwbcnt)
+
+#rlgdgr How religious are you(1-10)
+# 77,88,99 stands for missing values
+# higher value more religious
+tabl(ess$rlgdgr)
+ess$rlgdgr [ess$rlgdgr >11] <- NA
+tabl(ess$rlgdgr)
+# Change the name of this variable to "religious"
+ess <- ess |> 
+  mutate(religious = rlgdgr) |> 
+  select(-rlgdgr)
+#######
+ess$essround <- 9
+ess$party.vote.ess <- ifelse(is.na(ess$party.vote.num),NA, paste0(ess$cntry,"-",ess$essround,"9",ess$party.vote.num))
+# load the ESS-Partyfacts extended crosswalk
+cw_ess_pf <- read_csv(url("https://raw.githubusercontent.com/sophieehill/ess-partyfacts-crosswalk/master/ess-partyfacts-extended.csv"))
+cw_ess_pf$party.vote.ess <- paste0(cw_ess_pf$cntry, "-", cw_ess_pf$essround, "9", cw_ess_pf$ess_id)
+cw_ess_pf <- cw_ess_pf |>  select(party.vote.ess, partyfacts_id, partyfacts_name)
+
+# merge partyfacts IDs into main dataset
+ess <- left_join(ess, cw_ess_pf, by=c("party.vote.ess"))
+
+# now load the Partyfacts-External crosswalk and select the Manifesto dataset
+# this lets us link those partyfacts IDs to *other* datasets
+cw_pf <- read_csv(url("https://partyfacts.herokuapp.com/download/external-parties-csv/"))
+cw_pf$dataset_party_id <- as.numeric(as.character(cw_pf$dataset_party_id))
+cw_pf_cmp <- cw_pf |>  filter(dataset_key == "manifesto") |>  select(partyfacts_id, dataset_party_id)
+
+names(cw_pf_cmp) <- c("partyfacts_id", "cmp_id")
+
+ess <- left_join(ess, cw_pf_cmp, by=c("partyfacts_id"))
+tabl(ess$cmp_id)
+
+# In order to merge in election-level variables (e.g. measures of a party's manifesto for a particular election), we need to match up the ESS dates to the most recent election
+# Some ESS fieldwork occurs over an election period, meaning that respondents within the same country-round would be referring to different elections when they recall their "past vote"
+# First, let's import the dataset from Denis Cohen's github: https://github.com/denis-cohen/ess-election-dates
+ess_dates <- read_csv(url("https://raw.githubusercontent.com/denis-cohen/ess-election-dates/master/ess_election_dates.csv"))
+# select needed vars
+ess_dates <- ess_dates |>  select(cntry, essround, recent_election, recent_election_split1)
+# merge in
+ess <- left_join(ess, ess_dates, by=c("cntry", "essround"))
+
+# create a variable indicating date of interview for each respondent
+# first create day/month/year variables consistent across rounds
+# from ESS Round 3 onwards, they give us the start (inwdds) AND end date (inwdde) of the interview
+# here taking the start date as our reference point
+ess <- ess |> mutate(int.day = inwdds) |> 
+              mutate(int.month = inwmms) |> 
+              mutate(int.year = inwyys)
+ess <- ess |>  mutate(int.date = as.Date(paste(int.year, int.month, int.day, sep="-")))
+tabl(ess$int.date)
+
+# for each respondent, let's define their "most recent election", based on start interview date
+ess <- ess |>  mutate(ref.election = case_when(int.date > recent_election ~ recent_election,
+                                               int.date <= recent_election ~ recent_election_split1))
+tabl(ess$ref.election)
+
+
+library(manifestoR)
+# set API key
+mp_setapikey(key = "70af9d9d7f76a3d66d41142debe969f6")
+# download latest dataset
+cmp <- as.data.frame(mp_maindataset())
+# save for replicability
+# write.csv(cmp, "cmp_main_2020.csv")
+head(cmp)
+tabl(cmp$edate)
+summary(cmp$party)
+# create election year variable
+cmp$election.year <- as.numeric(as.character(substr(cmp$date, 1, 4)))
+# create econ l-r and lib-auth scales, following Bakker & Hobolt (2013)
+cmp <- cmp |>  mutate(econlr = scale_logit(data=cmp,
+                                           pos=c("per401", "per402", "per407", "per505", 
+                                                 "per507", "per410", "per414", "per702"), 
+                                           neg=c("per403", "per404", "per406", "per504", 
+                                                 "per506", "per413", "per412", "per701", 
+                                                 "per405", "per409", "per415", "per503"),
+                                           zero_offset = 0.5))
+
+cmp <- cmp |>  mutate(econlr.sal = (per401 + per402 + per407 + per505 + per507 + per410 + per414 + per702) +
+                        (per403 + per404 + per406 + per504 + per506 + per413 + per412 + per701 + per405 + per409 + per415 + per503))
+table(ess$cntry)
+
+cmp <- cmp |>  mutate(auth = scale_logit(data=cmp,
+                                         pos=c("per305", "per601", "per603", "per605", 
+                                               "per608", "per606"), 
+                                         neg=c("per501", "per602", "per604", "per502", 
+                                               "per607", "per416", "per705", "per706", 
+                                               "per201", "per202"),
+                                         zero_offset = 0.5))
+
+cmp <- cmp |>  mutate(auth.sal = (per305 + per601 + per603 + per605 + per608  + per606) +
+                        (per501 + per602 + per604 + per502 + per607 + per416 + per705 + per706 + per201 + per202))
+# select party code, party family
+# as well as party-election specific variables like right/left coding of the manifesto
+cmp.x <- cmp |>  select(party, parfam, election.year, edate, rile, 
+                        econlr, econlr.sal, auth, auth.sal)
+names(cmp.x)[1:2] <- c("cmp_id", "cmp_parfam") # relabel for clarity
+head(cmp.x)
+
+ess$election.year <- as.numeric(as.character(substr(ess$ref.election, 1, 4)))
+tabl(ess$election.year)
+# match up by election year
+# N.B. this won't work for cases where two elections happen in the same year, and ESS fieldwork window covers the 2nd election
+ess <- left_join(ess, cmp.x, by=c("cmp_id", "election.year"))
+
+# create left vote recall based on party families
+# 10 = ecological
+# 20 = socialist or other left
+# 30 = social democratic
+ess$vote.left <- ifelse(ess$cmp_parfam==10 | ess$cmp_parfam==20 | ess$cmp_parfam==30, 1, 0)
+tabl(ess$vote.left)
+
+names(ess)
+# create the data frame we will use later based on ess
+essx <- ess |>  select(idno, cntry, anweight,essround, int.date,
+                       vote,female, age, age.group, bachelor, right_polview,immi_view,religious,
+                       party.vote.ess, partyfacts_id, partyfacts_name,
+                       cmp_id, cmp_parfam, vote.left, ref.election,
+                       election.year, edate, rile,
+                       econlr, econlr.sal, auth, auth.sal) |> 
+                       as.data.frame()
+
+str(essx)# inspect the structure of essx
+# change some dummy variables(num/int) into factor
+essx <- essx |> 
+  mutate(female = as.factor(female),
+         bachelor = as.factor(bachelor),
+         vote.left =as.factor(vote.left))
+str(essx)
+```
+
+## Descriptive Statistics
+
+```{r}
+# filter out all participants who has at least one NA in the variables
+essx_1 <- essx[complete.cases(essx), ]
+# table(essx_1$cntry)
+
+table_1 <- datasummary((Heading("")*1+Heading("")*vote.left)*(Heading("Number")*1 + Heading("Age")*age + Heading("Female")*female + Heading("High education")*bachelor + Heading("Left-right scale ")*right_polview + Heading("Immigration view")*immi_view + Heading("Religiosity")*religious) ~ Heading("Min")*Min + Heading("Max")*Max + Heading("Mean")*mean+ Heading("SD")*sd + Heading("N")*N + Percent(denom = Equal(vote.left)),
+            data = essx_1,
+            fmt = 2,
+            title = "Descriptive Statistics for Participants in the 2018 Europe Election (ESS). Binary outcomes",
+            notes = c("Data Source: round 9 of the European Social Survey (ESS)","available on https://www.europeansocialsurvey.org/","High education is coded 1 if the voter has a degree no low than bachelor and 0 otherwise","Left-Right scale shows the voter's political view with the lower values meaning more left","Higher value in Immigration view means more postive view on immigrants","The higher the value in Religiosity is, the more religious the voter is"),booktabs=TRUE) |> 
+  pack_rows(index=c("All participants"=9,
+                    "Non_left Party voters" =9,
+                    "Left Party voters" =9),
+            bold=T)  
+  
+table_1 |>  kable_styling(latex_options = "hold_position")
+
+# Create party blocs for multinomial logistic model
+essx_2 <- essx_1 |> 
+  mutate(party_bloc = case_when(cmp_parfam == 10 ~ "Left",# 10 ECO Ecological parties
+
+                                cmp_parfam == 20 ~ "Left",# 20 LEF Socialist or other left parties
+                                cmp_parfam == 30 ~ "Left",# 30 SOC Social democratic parties
+                                cmp_parfam == 40 ~ "Liberal",# 40 LIB Liberal parties
+                                cmp_parfam == 50 ~ "Right",# 50 CHR Christian democratic parties (in Israel also Jewish parties)
+                                cmp_parfam == 60 ~ "Right",# 60 CON Conservative parties
+                                cmp_parfam == 70 ~ "Radical Right",# 70 NAT Nationalist and radical right parties
+                                cmp_parfam == 80 ~ "Other",# 80 AGR Agrarian parties
+                                cmp_parfam == 90 ~ "Other",# 90 ETH Ethnic and regional parties
+
+                                cmp_parfam == 95 ~ "Other",# 95 SIP Special issue parties
+
+                                cmp_parfam == 98 ~ NA,
+                                # 98 DIV Electoral alliances of diverse origin without dominant party
+                                TRUE ~ NA
+                                )) 
+
+# multinomial logistic regression models
+# set voting for left parties as the reference catagory
+# descriptive data
+essx_2 <- essx_2 |> 
+  mutate(party_bloc = relevel(as_factor(party_bloc), ref = "Left"))
+
+table_2 <- datasummary(Heading("")*party_bloc*(Heading("Number")*1 + Heading("Age")*age + Heading("Female")*female + Heading("High education")*bachelor + Heading("Left-right scale ")*right_polview + Heading("Immigration view")*immi_view + Heading("Religiosity")*religious) ~ Heading("Min")*Min + Heading("Max")*Max + Heading("Mean")*mean+ Heading("SD")*sd + Heading("N")*N + Percent(denom = Equal(party_bloc)),
+            data = essx_2,
+            fmt = 2,
+            title = "Descriptive Statistics for Participants in the 2018 Europe Election (ESS). Multiple outcomes",
+            notes = c("Data Source: round 9 of the European Social Survey (ESS)","available on https://www.europeansocialsurvey.org/","High education is coded 1 if the voter has a degree no low than bachelor and 0 otherwise","Left-Right scale shows the voter's political view with the lower values meaning more left","Higher value in Immigration view means more postive view on immigrants","The higher the value in Religiosity is, the more religious the voter is"),booktabs=TRUE)
+  
+table_2 |>  kable_styling(latex_options = "hold_position")
+```
+
+|     Table 1 shows the descriptive statistics of the participants which the outcome is binary.
+For all voters, the number of male and female is close and the average value on their political ideology, immigration view and religiosity are close to the middle of the scale. The percentage of voters without a high degree (70.62%) is more than two times of that of highly educated voters (29.38%). The number of non-left voters (9817) is about two times of left voters (4328). Left party were more popular among female judging from the percentage of female voters (55.13%). 
+
+|     The age of non-left voters and left voters do not deviate much from the average age of all voters. Left voters had a higher percentage of high education (32.60%) than non-left voters (27.96%). Compared with non-left voters, left voters were in general more left leaning and less religious but had a more positive view on immigrants. 
+
+|     In Table 2, we extend the binary results to different party classifications. 
+
+|     Most voters chose the right party. The number of left party voters is slightly lower. But the least number of voters chose the radical right party. The average ages of voters are similar for all party types, but right party voters were generally the eldest. Left party had the highest percentage of female voters (55.13 %) and radical right party had the highest percentage of male voters (58.20%). Liberal party voters had the highest percentage of high education (40.40%) but radical right party voters had the lowest (14.20%). Voters’ political ideology went much in line with their party choices with left party voter being the most left leaning, radical right party voters being the most right leaning. Left party voters had the most positive view on immigrants (5.69) while radical party voters had the least (3.50). Surprisingly, right party voters appeared to be the most religious (5.01) instead of radical right party voters. Liberal party voters were the least religious (3.66).
+
+# Results
+
+## 1.Binary logistic regression
+
+```{r}
+# Binary logistic regression models
+bin_lr <- glm(vote.left ~ age+female+bachelor+right_polview, data = essx_1, 
+                     family = "binomial"(link = "logit"))
+
+bin_lr2 <- glm(vote.left ~ age+female+bachelor+right_polview+immi_view+religious, data = essx_1, 
+                     family = "binomial"(link = "logit"))
+
+# Put two models in one table
+models_1 <- list(
+  "Model 1" = bin_lr,
+  "Model 2" = bin_lr2
+)
+
+modelsummary(models_1, 
+              coef_rename = c("female1"="Gender(ref:male)",
+                                 "age"="Age(years)",
+                                 "bachelor1"="Education(ref:low education) ",
+                                 "right_polview"="Left-right scale(1-10)",
+                                 "immi_view"="Immigration view(1-10)",
+                                 "religious"="Religiosity(1-10)"),
+             fmt = 3,
+             stars = TRUE,
+             output="kableExtra",
+             exponentiate = TRUE,
+             gof_omit = "Log.Lik.& F & RMSE",
+             title = "Binary logistic regression models. Voting for left parties",
+             notes = list("Source: Data Source: round 9 of the European Social Survey (ESS)", "available on https://www.europeansocialsurvey.org/",
+                          "Comments:","Voters with a degree equals to or higher than bechelor is considered having high education.","The higher the value in Left-right sacle, the more right leaning the voter's political view is","The higher the value in Immigration view, the more positive the voter thinks about immigrants","The higher the value in Religiosity is, the more religious the voter is")) 
+```
+
+|     Table 3 shows the results from the binary logistic regression models. Age doesn’t have a significant effect on voting for left party in both models. The significant effect of high education becomes not significant as we controlled for immigration view and religiosity. But the effects of gender and political ideology remain significant (p < 0.001) as we move to Model 2 and the positive effect of gender become strong while the negative effect of political ideology become weaker. Holding all other variables constant, being a female increases the odds of voting left by 25.5%. But each unit increase in the left-right scale lowers the odds of voting left by 46.4%. A unit increase in the view of immigrants increases the odds of voting left by 14.3% (p < 0.001). But a unit increase in religiosity decreases the odds of voting left by 4.1%.
+
+|     Female voters, left leaning voters, voters who are more positive about immigrants but less religious are more likely to choose left party.
+
+## 2.Multinomial logistic regression
+
+```{r}
+# multinomial logistic model
+mul_1 <- multinom(party_bloc ~ age + female + bachelor + right_polview, data = essx_2, trace = FALSE)
+
+mul_2 <- multinom(party_bloc ~ age + female + bachelor + right_polview + immi_view+religious, data = essx_2, trace = FALSE)
+
+# two model result are too long to put in one table
+models_2 <- list(
+  "Model 3" = mul_2
+)
+
+modelsummary(models_2, 
+              coef_rename = c("female1"="Gender(ref:male)",
+                                 "age"="Age(years)",
+                                 "bachelor1"="Education(ref:low) ",
+                                 "right_polview"="Left-right scale(1-10)",
+                                 "immi_view"="Immigration view(1-10)",
+                                 "religious"="Religiosity(1-10)"),
+             fmt = 3,
+             stars = TRUE,
+             shape = term ~ model + response,
+             output="kableExtra",
+             exponentiate = TRUE,
+             gof_omit = "Log.Lik.& F & RMSE",
+             title = "Multinomial logistic regression. Party Choice in the 2018 Europe Election (ESS).",
+             notes = list("Source: Data Source: round 9 of the European Social Survey (ESS)", "available on https://www.europeansocialsurvey.org/",
+                          "Comments:","Voters with a degree equals to or higher than bechelor is considered having high education.","The higher the value in Left-right sacle, the more right leaning the voter's political view is","The higher the value in Immigration view, the more positive the voter thinks about ","immigrants","The higher the value in Religiosity is, the more religious the voter is")) 
+```
+
+|     Table 4 shows the results from the multinomial logistic regression model. Looking at the results of Model 3, the increase in age has different effect on choosing other different party types over left. For liberal and right party, it has a positive effect with the effect on voting for liberal party stronger. Holding all other variables constant, for each year older, the odds of voting liberal party versus voting left significantly (p < 0.01) increases by 0.5%. But for radical right and other party, the effects are negative with the effect on voting other party stronger. Holding all other variables constant, for each year older, the odds of voting other party versus voting left significantly (p < 0.001) decreases by 1.6%.
+
+|     Older voters tend to favor liberal or right party more than left party but favor radical right and other party less than left party.
+
+|     Being a female has significant (p < 0.001) negative effects on voting radical right, right or other party compared with voting left with the negative effect for voting radical right being the strongest. But its negative effect on voting liberal party is insignificant (p > 0.1). Holding all other variables constant, being a female lowers the odds of voting radical right party versus voting left by 40.9%.
+
+|     Being a female makes a voter least likely to choose radical right party over left party.
+
+|     High education has a significant (p < 0.001) positive effect on choosing liberal party over left, but it has significant (p < 0.001) negative effects on choosing radical right or other party over left with the negative effect on voting radical right being stronger. The negative effect of high education on voting right party versus left is insignificant (p < 0.1). Holding all other variables constant, high education increases the odds of voting liberal party versus voting left by 58.2%. Holding all other variables constant, high education lower the odds of voting radical right party versus voting left by 52.9%. 
+
+|     Highly educated voters tend to favor liberal party over left party but favor left party over radical right and other party. They are the least likely to choose radical right party over left party.
+
+|     Being more right leaning has significant (p < 0.001) positive effects on choosing radical right, right, liberal or other party over left party with the positive effect on choosing radical right party instead of left being the strongest. Holding all other variables constant, a unit righter in political ideology increases the odds of voting radical right party versus voting left by 125.7%.
+
+|     Given only two party type(left and non-left) to vote for, right leaning voters always drop left party.
+
+|     Positive view on immigrants has significant (p < 0.001) negative effect on choosing radical right, right, liberal or other party over left party with the negative effect on voting radical right party being the strongest. Holding all other variables as constant, a one unit increase (more positive) in immigrant view lowers the odds of voting radical right party versus left party by 34.1%.
+
+|     Voters with positive view on immigrants generally favor left party and are least likely to choose radical right party over left party.
+
+|     High level of religiosity has significant (p < 0.001) positive effects on choosing radical right, right and other party over left party with the positive effect on voting right party being the strongest. But it has a significant (p < 0.001) negative effect on choosing liberal party over left. Holding all other variables as constant, a one unit increase in religiosity increases the odds of voting right party versus left party by 9.0%. Holding all other variables as constant, a one unit increase in religiosity lowers the odds of voting liberal party versus left party by 4.7%.
+
+|     Highly religious voters tend to prefer radical right, right and other party than left party and are most likely to choose right party over left party. They are less likely to choose liberal party over left party.
+
+## 3.Conditional logistic regression
+
+```{r}
+ess_3 <- essx_2
+# only keep the variables we need for study in essx_3
+essx_3 <- ess_3 |> 
+  select(idno,cntry,female,age,bachelor,right_polview,immi_view,religious,partyfacts_name,cmp_parfam,party_bloc,anweight)
+# Create a vector that contains all possible choices
+choices <- levels(as.factor(essx_3$party_bloc))
+# Create new id column since idno is kind of "jumping"
+essx_3$id <- 1:nrow(essx_3)
+# Create a vector. Repeat all ids for 5 times(the number of choices) and store the values in the new vector
+repe <- rep(1:nrow(essx_3),length(choices))
+
+# Expand essx_3. Repeat each row 
+essx_3 <- data.frame(essx_3[repe,],
+                       alt = factor(rep(choices, each = nrow(essx_3)))) 
+
+# Create a column based on whether the possible alternative was indeed the voter's choice(1/0) 
+essx_3 <- essx_3 |> 
+    mutate(choice = if_else(party_bloc == alt, 1, 0))
+
+# Group the original data frame by country, party_bloc, and partyfacts_name columns
+# Calculate the mean value of the rile column for each unique party
+df_avg_rile <- ess_3 |> 
+  group_by(cntry,party_bloc,partyfacts_name) |> 
+  summarize(avg_rile = mean(rile))
+
+# But each unique party can be put in one of four choices(left, right, liberal, other)
+# We need to group the df_avg_rile again to get the real average rile for the four possible choices
+# Group df_avg_rile by country and partybloc columns
+# Calculate the mean value of the mean_rile column for each group
+df_final <- df_avg_rile |>  
+    group_by(cntry, party_bloc) |> 
+    summarize(avg_rile_x = mean(avg_rile)) |> 
+    drop_na()
+
+# Combine the essx_3 with df_final by country and party_bloc columns
+ess_long <- essx_3 |> 
+    left_join(df_final, 
+              by = c("cntry", "alt" = "party_bloc"))
+
+# conditional logistic regression
+library(survival)
+m5 <- clogit(choice~alt+avg_rile_x:age+avg_rile_x:female+avg_rile_x:bachelor+avg_rile_x:right_polview+strata(id),data=ess_long,weights = anweight)
+
+m6 <- clogit(choice~alt+avg_rile_x:age+avg_rile_x:female+avg_rile_x:bachelor+avg_rile_x:right_polview+avg_rile_x:immi_view+avg_rile_x:religious+strata(id),data=ess_long,weights = anweight)
+
+
+models_3 <- list("Model 4" = m5,
+                 "Model 5" = m6)
+modelsummary(models_3,
+             coef_rename = c("avg_rile_x" ="rile",
+                            "avg_rile_x:age"="rile:Age(year)",
+               "avg_rile_x:female1"="rile:Gender(ref:male)",
+                             "avg_rile_x:bachelor1"="rile:Education(ref:low)",
+                             "avg_rile_x:right_polview"="rile:Left_right political view(1-10)",
+                             "avg_rile_x:immi_view"="rile:Immigration view(1-10)",
+                             "avg_rile_x:religious"="rile:Religiosity(1-10)"),
+             fmt = 4,
+             stars = TRUE,
+             exponentiate = TRUE,
+             title = "Results of conditional logit models estimating factors affecting voting behavior",
+             notes = list("Source: Data Source: round 9 of the European Social Survey (ESS)", "available on https://www.europeansocialsurvey.org/",
+                          "Comments:","rile indicates the left-right position of a party type with a higher showing  more right leaning","Voters with a degree equals to or higher than bechelor is considered having high education.","The higher the value in Left-right sacle, the more right leaning the voter's political view is","The higher the value in Immigration view, the more positive the voter thinks about immigrants","The higher the value in Religiosity is, the more religious the voter is")) 
+```
+
+|     Table 5 shows the results from the conditional logistic regression model.
+
+|     “rile” is a variable created based on “rile” in the Manifesto Project Dataset (2022) which indicates the left-right position of a party with a higher value showing more right leaning. We obtained the “rile” for our five party types (left, radical right, right, liberal, other) by grouping the country, party type and party names and taking the mean of the original “rile”. 
+Compared with a one-year younger voter, a unit increase in the left-right position of the party lowers the odds of a voter voting for the party by 0.05(p < 0.001), holding all other variables constant.  Older voters are less likely to vote for right leaning parties than young voters. Compared with a male voter, a unit increase in rile lowers the odds of a female voter voting for the party by 1.62% (p < 0.001), holding all other variables constant. Female voters are less likely to vote for right leaning parties than male voters. Compared with a voter with low education, a unit increase in rile lowers the odds of a highly educated voter voting for the party by 1.33% (p < 0.001). Highly educated voters are less likely to vote for right leaning parties. Compared with a one unit more left leaning voter, a unit increase in rile increases the odds of a voter voting for the party by 1.62% (p < 0.001). Right leaning voters favor right leaning parties. Compared with a voter with a one unit less positive view on immigrants, a unit increase in rile lowers the odds of a voter voting for the party by 0.89% (p < 0.001). Voters who think of immigrants positively are less likely to vote for right leaning parties. Compared with a voter who is one unit less religious, a one unit increase in rile increases the odds of a voter voting for the party by 0.1% (p < 0.001). More religious voters favor right leaning parties.
+
+# Conclusion and discussion
+
+|     A voter’s political ideology is a strong predictor of the voter’s party choice. Left leaning voters favor left leaning parties over other parties and the same for right leaning voters. In general, older voters, female voters, highly educated voters and voters who think positively of immigrants tend to be more left leaning while more religious voters prefer right leaning parties.
+In this study, different countries are viewed as a whole and all the parties are categorized into five party types. Considering the political atmosphere and party structure in different countries are different and the features of parties which have been put in the same party type here could be slightly different, further studies could be conducted to test if the effect of these variables should be different for different countries. In addition, a voter’s political ideology is self-reported which could be problematic to some extent as a voter might be unwilling to admit being extremely left/right. More aspects revealing the voter’s true political ideology could be taken into consideration.
+
+# Reference 
+ESS Round 9: European Social Survey Round 9 Data (2018). Data file edition 3.1. Sikt - Norwegian Agency for Shared Services in Education and Research, Norway – Data Archive and distributor of ESS data for ESS ERIC. doi:10.21338/NSD-ESS9-2018.
+
+Lehmann, P., Burst, T., Matthieß, T., Regel, S., Volkens, A., Weßels, B., Zehnter, L. (2022): The Manifesto Data Collection. Manifesto Project (MRG/CMP/MARPOR). Version 2022a. Berlin: Wissenschaftszentrum Berlin für Sozialforschung (WZB). https://doi.org/10.25522/manifesto.mpds.2022a
+
+Inglehart, R. and Norris, P. (2000) ‘The Developmental Theory of the Gender Gap: Women’s and Men’s Voting Behavior in Global Perspective’, International Political Science Review / Revue internationale de science politique, 21(4), pp. 441–463.
+
+Harteveld, E., Dahlberg, S., Kokkonen, A. and Van Der Brug, W. (2019) “Gender Differences in Vote Choice: Social Cues and Social Harmony as Heuristics,” British Journal of Political Science. Cambridge University Press, 49(3), pp. 1141–1161. doi: 10.1017/S0007123417000138.
+
+Tilley, J. (2005) ‘Libertarian-authoritarian value change in Britain, 1974-2001’, Political Studies, 53(2), pp. 442–453.
+
+Tilley, J. and Evans, G. (2014) ‘Ageing and generational effects on vote choice: Combining cross-sectional and panel data to estimate APC effects’, Electoral Studies, 33, pp. 19–27. doi:10.1016/j.electstud.2013.06.007.
+
+Goerres, A. (2008) ‘The grey vote: determinants of older voters’ party choice in Britain and West Germany’, Electoral Studies, 27(2), pp. 285–304.
+
+Attewell, D. (2022) ‘Redistribution attitudes and vote choice across the educational divide’, European Journal of Political Research, 61(4), pp. 1080–1101. doi:10.1111/1475-6765.12486.
+
+Prior, M. (2010) ‘You’ve Either Got It or You Don’t? The Stability of Political Interest over the Life Cycle’, The Journal of Politics, 72(3), pp. 747–766. doi:10.1017/s0022381610000149.
+
+Malloy, B., Ozkok, Z. and Rosborough, J. (2022) ‘The Impact of Immigration Attitudes on Voting Preferences: Evidence from the European Social Survey’, Journal of International Migration and Integration, 23(4), pp. 1825-1853–1853. doi:10.1007/s12134-021-00913-2.
+
+Marcinkiewicz, K., and Dassonneville, R. (2022). ‘Do religious voters support populist radical right parties? Opposite effects in Western and East-Central Europe’, Party Politics, 28(3), pp.444–456. doi:10.1177/1354068820985187.
+
+Long, J. S. (1997). Regression Models for Categorical and Limited Dependent Variables. Thousand Oaks, CA: SAGE Publications, Inc.
